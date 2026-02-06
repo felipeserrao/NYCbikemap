@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>NYC Bike Map</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+        #map { position: absolute; top: 0; bottom: 0; left: 0; right: 0; z-index: 1; }
+        
+        .panel {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+            z-index: 1000;
+            max-width: calc(100vw - 20px);
+            overflow: hidden;
+        }
+        .panel-header {
+            background: linear-gradient(135deg, #1a73e8, #0d47a1);
+            color: white;
+            padding: 12px 16px;
+            font-weight: 600;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            cursor: pointer;
+        }
+        .panel-header span { font-size: 1.1rem; }
+        .panel-toggle { font-size: 1.2rem; transition: transform 0.3s; }
+        .panel.collapsed .panel-toggle { transform: rotate(180deg); }
+        .panel-content { padding: 12px 16px; max-height: 50vh; overflow-y: auto; }
+        .panel.collapsed .panel-content { display: none; }
+        
+        .layer-item {
+            display: flex;
+            align-items: center;
+            padding: 8px 0;
+            border-bottom: 1px solid #eee;
+            font-size: 0.9rem;
+        }
+        .layer-item:last-child { border-bottom: none; }
+        .layer-item input { width: 18px; height: 18px; margin-right: 10px; cursor: pointer; }
+        .color-dot { width: 14px; height: 14px; border-radius: 3px; margin-right: 10px; flex-shrink: 0; }
+        .dot-protected { background: #00a651; }
+        .dot-standard { background: #0066cc; }
+        .dot-sharrows { background: #ff9800; }
+        .dot-citibike { background: #e91e63; border-radius: 50%; }
+        
+        .loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: white;
+            padding: 24px 32px;
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.25);
+            z-index: 2000;
+            text-align: center;
+            max-width: 90vw;
+        }
+        .loading.hidden { display: none; }
+        .spinner {
+            width: 36px;
+            height: 36px;
+            border: 4px solid #e0e0e0;
+            border-top-color: #1a73e8;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 12px;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .status { font-size: 0.85rem; color: #666; margin-top: 8px; }
+        .error { color: #d32f2f; }
+        
+        .leaflet-popup-content { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+        .leaflet-popup-content h4 { margin: 0 0 6px 0; font-size: 1rem; }
+        .leaflet-popup-content p { margin: 3px 0; font-size: 0.85rem; color: #555; }
+        
+        .locate-btn {
+            position: absolute;
+            bottom: 100px;
+            right: 10px;
+            z-index: 1000;
+            background: white;
+            border: 2px solid rgba(0,0,0,0.2);
+            border-radius: 4px;
+            width: 34px;
+            height: 34px;
+            cursor: pointer;
+            font-size: 18px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .locate-btn:hover { background: #f4f4f4; }
+    </style>
+</head>
+<body>
+    <div id="map"></div>
+    
+    <div class="panel" id="panel">
+        <div class="panel-header" onclick="document.getElementById('panel').classList.toggle('collapsed')">
+            <span>🚲 NYC Bike Map</span>
+            <span class="panel-toggle">▼</span>
+        </div>
+        <div class="panel-content">
+            <label class="layer-item">
+                <input type="checkbox" id="tog-protected" checked>
+                <span class="color-dot dot-protected"></span>
+                Class I - Protected/Path
+            </label>
+            <label class="layer-item">
+                <input type="checkbox" id="tog-standard" checked>
+                <span class="color-dot dot-standard"></span>
+                Class II - Bike Lane
+            </label>
+            <label class="layer-item">
+                <input type="checkbox" id="tog-sharrows" checked>
+                <span class="color-dot dot-sharrows"></span>
+                Class III - Shared/Signed
+            </label>
+            <label class="layer-item">
+                <input type="checkbox" id="tog-citibike" checked>
+                <span class="color-dot dot-citibike"></span>
+                Citi Bike Stations
+            </label>
+        </div>
+    </div>
+    
+    <button class="locate-btn" id="locateBtn" title="Find my location">📍</button>
+    
+    <div class="loading" id="loading">
+        <div class="spinner"></div>
+        <div>Loading...</div>
+        <div class="status" id="status">Waiting for libraries...</div>
+    </div>
+
+    <script>
+    // Load Leaflet dynamically
+    var script = document.createElement('script');
+    script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+    script.onload = initMap;
+    script.onerror = function() {
+        document.getElementById('loading').innerHTML = '<div class="error">Failed to load Leaflet</div>';
+    };
+    document.head.appendChild(script);
+    
+    function initMap() {
+        var loading = document.getElementById('loading');
+        var status = document.getElementById('status');
+        
+        function setStatus(msg) {
+            status.textContent = msg;
+        }
+        
+        setStatus('Creating map...');
+        
+        var map = L.map('map').setView([40.7484, -73.9857], 13);
+        
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            maxZoom: 19,
+            attribution: '© OpenStreetMap'
+        }).addTo(map);
+        
+        setStatus('Loading bike routes...');
+        
+        var protectedLayer = L.layerGroup().addTo(map);
+        var standardLayer = L.layerGroup().addTo(map);
+        var sharrowsLayer = L.layerGroup().addTo(map);
+        var citibikeLayer = L.layerGroup().addTo(map);
+        
+        // Colors based on bike lane classification
+        var COLORS = {
+            protected: '#00a651',  // Class I - green
+            standard: '#0066cc',   // Class II - blue  
+            sharrows: '#ff9800'    // Class III - orange
+        };
+        
+        var BIKE_ROUTES_URL = 'https://data.cityofnewyork.us/resource/mzxg-pwib.geojson?$limit=50000';
+        
+        fetch(BIKE_ROUTES_URL)
+            .then(function(res) { 
+                if (!res.ok) throw new Error('HTTP ' + res.status);
+                return res.json(); 
+            })
+            .then(function(data) {
+                setStatus('Drawing ' + data.features.length + ' routes...');
+                
+                var counts = { protected: 0, standard: 0, sharrows: 0 };
+                
+                data.features.forEach(function(feature) {
+                    if (!feature.geometry) return;
+                    
+                    var props = feature.properties || {};
+                    var streetName = props.street || props.fromstreet || 'Bike Route';
+                    var facilityClass = props.facilitycl || '';  // "I", "II", "III", "L"
+                    var facilityType = props.ft_facilit || props.tf_facilit || '';  // "Protected", "Shared", etc.
+                    var isGreenway = props.grnwy === 'Greenway';
+                    
+                    // Classify based on facilitycl (the standard bike lane classification)
+                    var type, color, targetLayer;
+                    
+                    if (facilityClass === 'I' || isGreenway) {
+                        // Class I: Protected bike lanes, paths, greenways
+                        type = 'protected';
+                        color = COLORS.protected;
+                        targetLayer = protectedLayer;
+                        counts.protected++;
+                    } else if (facilityClass === 'III') {
+                        // Class III: Shared lanes, sharrows, signed routes
+                        type = 'sharrows';
+                        color = COLORS.sharrows;
+                        targetLayer = sharrowsLayer;
+                        counts.sharrows++;
+                    } else {
+                        // Class II (and L for links): Standard bike lanes
+                        type = 'standard';
+                        color = COLORS.standard;
+                        targetLayer = standardLayer;
+                        counts.standard++;
+                    }
+                    
+                    try {
+                        var line = L.geoJSON(feature, {
+                            style: { color: color, weight: 3, opacity: 0.8 }
+                        });
+                        
+                        var popupContent = '<h4>🛤️ ' + streetName + '</h4>' +
+                            '<p><b>Class:</b> ' + (facilityClass || '?') + '</p>' +
+                            '<p><b>Type:</b> ' + (facilityType || 'N/A') + '</p>';
+                        if (isGreenway && props.gwsystem) {
+                            popupContent += '<p><b>Greenway:</b> ' + props.gwsystem + '</p>';
+                        }
+                        
+                        line.bindPopup(popupContent);
+                        line.addTo(targetLayer);
+                    } catch(e) {}
+                });
+                
+                console.log('Route counts:', counts);
+                setStatus('Loading Citi Bike stations...');
+                
+                return loadCitiBike();
+            })
+            .then(function() {
+                loading.classList.add('hidden');
+            })
+            .catch(function(err) {
+                console.error(err);
+                loading.innerHTML = '<div class="error">Error</div><div class="status">' + err.message + '</div>';
+            });
+        
+        function loadCitiBike() {
+            return Promise.all([
+                fetch('https://gbfs.citibikenyc.com/gbfs/2.3/en/station_information.json').then(function(r) { return r.json(); }),
+                fetch('https://gbfs.citibikenyc.com/gbfs/2.3/en/station_status.json').then(function(r) { return r.json(); })
+            ]).then(function(results) {
+                var stations = results[0].data.stations;
+                var statuses = {};
+                results[1].data.stations.forEach(function(s) { statuses[s.station_id] = s; });
+                
+                stations.forEach(function(station) {
+                    var s = statuses[station.station_id] || {};
+                    var marker = L.circleMarker([station.lat, station.lon], {
+                        radius: 6, fillColor: '#e91e63', color: '#fff', weight: 2, opacity: 1, fillOpacity: 0.9
+                    });
+                    marker.bindPopup(
+                        '<h4>🚲 ' + station.name + '</h4>' +
+                        '<p><b>Bikes:</b> ' + (s.num_bikes_available !== undefined ? s.num_bikes_available : '?') +
+                        ' &nbsp; <b>Docks:</b> ' + (s.num_docks_available !== undefined ? s.num_docks_available : '?') + '</p>' +
+                        '<p><b>E-bikes:</b> ' + (s.num_ebikes_available || 0) + ' &nbsp; <b>Capacity:</b> ' + station.capacity + '</p>'
+                    );
+                    marker.addTo(citibikeLayer);
+                });
+            });
+        }
+        
+        // Layer toggles
+        document.getElementById('tog-protected').addEventListener('change', function(e) {
+            if (e.target.checked) map.addLayer(protectedLayer); else map.removeLayer(protectedLayer);
+        });
+        document.getElementById('tog-standard').addEventListener('change', function(e) {
+            if (e.target.checked) map.addLayer(standardLayer); else map.removeLayer(standardLayer);
+        });
+        document.getElementById('tog-sharrows').addEventListener('change', function(e) {
+            if (e.target.checked) map.addLayer(sharrowsLayer); else map.removeLayer(sharrowsLayer);
+        });
+        document.getElementById('tog-citibike').addEventListener('change', function(e) {
+            if (e.target.checked) map.addLayer(citibikeLayer); else map.removeLayer(citibikeLayer);
+        });
+        
+        // Geolocation
+        document.getElementById('locateBtn').addEventListener('click', function() {
+            map.locate({ setView: true, maxZoom: 16 });
+        });
+        
+        var locationMarker;
+        map.on('locationfound', function(e) {
+            if (locationMarker) map.removeLayer(locationMarker);
+            locationMarker = L.circleMarker(e.latlng, {
+                radius: 10, fillColor: '#4285f4', color: '#fff', weight: 3, fillOpacity: 1
+            }).addTo(map);
+            locationMarker.bindPopup('You are here').openPopup();
+        });
+        
+        map.on('locationerror', function(e) {
+            alert('Location error: ' + e.message);
+        });
+    }
+    </script>
+</body>
+</html>
