@@ -113,12 +113,57 @@
             display: flex; align-items: center; justify-content: center;
         }
         .saved-item .del:hover { color: #dc2626; background: #fee2e2; }
+        .saved-item .edit {
+            width: 20px; height: 20px; border: none; background: none;
+            color: #9ca3af; cursor: pointer; font-size: 12px; border-radius: 4px;
+            display: flex; align-items: center; justify-content: center;
+        }
+        .saved-item .edit:hover { color: #2563eb; background: #eff6ff; }
+        .saved-item .gmaps {
+            width: 20px; height: 20px; border: none; background: none;
+            color: #9ca3af; cursor: pointer; font-size: 12px; border-radius: 4px;
+            display: flex; align-items: center; justify-content: center;
+        }
+        .saved-item .gmaps:hover { color: #16a34a; background: #f0fdf4; }
+        .editing-badge {
+            display: inline-block; font-size: 10px; background: #fef3c7; color: #92400e;
+            padding: 1px 6px; border-radius: 4px; margin-left: 4px; font-weight: 600;
+        }
         #distance-badge {
             position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%);
             z-index: 1000; background: rgba(0,0,0,0.75); color: white;
             padding: 6px 14px; border-radius: 20px; font-size: 13px; font-weight: 500;
             display: none; pointer-events: none;
         }
+        #save-status {
+            position: fixed; bottom: 12px; right: 12px; z-index: 1500;
+            padding: 8px 14px; border-radius: 8px; font-size: 12px; font-weight: 600;
+            display: none; transition: opacity 0.3s;
+        }
+        #save-status.saving { display: block; background: #dbeafe; color: #1e40af; }
+        #save-status.saved { display: block; background: #dcfce7; color: #166534; }
+        #save-status.error { display: block; background: #fee2e2; color: #991b1b; }
+        #setup-dialog {
+            display: none; position: fixed; inset: 0; z-index: 2000;
+            background: rgba(0,0,0,0.4); align-items: center; justify-content: center;
+        }
+        #setup-dialog.show { display: flex; }
+        #setup-dialog .dialog {
+            background: white; border-radius: 12px; padding: 20px;
+            width: 320px; box-shadow: 0 4px 24px rgba(0,0,0,0.2);
+        }
+        #setup-dialog input {
+            width: 100%; padding: 8px 10px; border: 1px solid #d1d5db;
+            border-radius: 6px; font-size: 13px; margin: 6px 0;
+        }
+        #setup-dialog .btns { display: flex; gap: 8px; margin-top: 10px; }
+        #setup-dialog .btns button {
+            flex: 1; padding: 8px; border-radius: 6px; border: 1px solid #ddd;
+            font-size: 14px; cursor: pointer;
+        }
+        #setup-dialog .btns .confirm { background: #2563eb; color: white; border-color: #2563eb; }
+        #setup-dialog label { font-size: 12px; color: #555; font-weight: 500; }
+        #setup-dialog .hint { font-size: 11px; color: #9ca3af; margin: 2px 0 8px; }
         #save-dialog {
             display: none; position: fixed; inset: 0; z-index: 2000;
             background: rgba(0,0,0,0.4); align-items: center; justify-content: center;
@@ -200,9 +245,14 @@
             </div>
             <button class="path-action" onclick="undoLastPoint()">↩ Undo</button>
             <button class="path-action save" onclick="showSaveDialog()">💾 Save Path</button>
+            <button class="path-action" onclick="exportToGoogleMaps(-1)">🗺️ Open in Google Maps</button>
             <button class="path-action danger" onclick="clearDrawnPath()">🗑 Clear</button>
             <div class="section-label" style="margin-top:8px;">Saved Paths</div>
             <div class="saved-list" id="saved-list"></div>
+            <div class="section-divider"></div>
+            <button class="path-action" style="font-size:11px;color:#6b7280;" onclick="showSetupDialog()">⚙️ GitHub Settings</button>
+            <button class="path-action" style="font-size:11px;color:#6b7280;" onclick="document.getElementById('import-file').click()">📤 Import Paths</button>
+            <input type="file" id="import-file" accept=".json" style="display:none" onchange="importPaths(event)">
         </div>
     </div>
     
@@ -212,11 +262,33 @@
     
     <div id="save-dialog">
         <div class="dialog">
-            <div style="font-weight:600;font-size:16px;">Save Path</div>
-            <input type="text" id="path-name" placeholder="e.g. Morning commute">
+            <div style="font-weight:600;font-size:16px;" id="save-dialog-title">Save Path</div>
+            <input type="text" id="path-name" placeholder="e.g. Morning commute" onkeydown="if(event.key==='Enter')saveDrawnPath()">
             <div class="btns">
                 <button onclick="closeSaveDialog()">Cancel</button>
-                <button class="confirm" onclick="saveDrawnPath()">Save</button>
+                <button class="confirm" id="save-dialog-btn" onclick="saveDrawnPath()">Save</button>
+            </div>
+        </div>
+    </div>
+    
+    <div id="save-status"></div>
+    
+    <div id="setup-dialog">
+        <div class="dialog">
+            <div style="font-weight:600;font-size:16px;margin-bottom:8px;">⚙️ GitHub Setup</div>
+            <div style="font-size:12px;color:#555;margin-bottom:12px;">One-time setup to auto-save your paths to your repo.</div>
+            <label>Repository</label>
+            <div class="hint">Format: owner/repo-name</div>
+            <input type="text" id="setup-repo" placeholder="e.g. felipeg/nyc-bike-map">
+            <label>Personal Access Token</label>
+            <div class="hint">Create at github.com/settings/tokens → Fine-grained → Contents: Read+Write</div>
+            <input type="password" id="setup-token" placeholder="github_pat_...">
+            <label>File path</label>
+            <div class="hint">Path to paths.json in the repo</div>
+            <input type="text" id="setup-path" placeholder="paths.json" value="paths.json">
+            <div class="btns">
+                <button onclick="closeSetupDialog()">Cancel</button>
+                <button class="confirm" onclick="saveSetup()">Save</button>
             </div>
         </div>
     </div>
@@ -410,8 +482,8 @@
         var drawPoints = [];
         var drawMarkers = [];
         var drawPolyline = L.polyline([], { color: '#e53935', weight: 4, opacity: 0.9, dashArray: '8,6' }).addTo(map);
-        var PATH_STORAGE = 'nyc_bike_paths';
         var loadedPathLayers = []; // track loaded saved path layers
+        var editingIdx = -1; // index of path being edited, -1 = new path
         
         // Intercept clicks at DOM level BEFORE Leaflet processes them
         // Capture phase (true) means this fires before Leaflet's handlers
@@ -479,7 +551,9 @@
             drawPolyline.setLatLngs([]);
             drawMarkers.forEach(function(m) { map.removeLayer(m); });
             drawMarkers = [];
+            editingIdx = -1;
             updatePathDistance();
+            renderSavedPaths();
         };
         
         function updatePathDistance() {
@@ -502,18 +576,160 @@
         // Set initial cursor
         document.getElementById('map').className = 'draw-mode';
         
-        // Save / Load
+        // ── Storage: GitHub API persistence ──
+        var savedPaths = [];
+        var GH_SETTINGS_KEY = 'nyc_bike_gh';
+        
+        function getGHSettings() {
+            try { return JSON.parse(localStorage.getItem(GH_SETTINGS_KEY) || 'null'); }
+            catch(e) { return null; }
+        }
+        
         function getSavedPaths() {
-            try { return JSON.parse(localStorage.getItem(PATH_STORAGE) || '[]'); }
-            catch(e) { return []; }
+            return savedPaths;
+        }
+        
+        function showSaveStatus(cls, msg) {
+            var el = document.getElementById('save-status');
+            el.className = cls;
+            el.textContent = msg;
+            if (cls === 'saved') setTimeout(function() { el.style.display = 'none'; }, 2000);
+        }
+        
+        // Load paths.json on startup
+        function loadPathsFromFile() {
+            // Try fetching from same directory first (works on GitHub Pages)
+            fetch('paths.json?_=' + Date.now())
+                .then(function(r) {
+                    if (!r.ok) throw new Error('not found');
+                    return r.json();
+                })
+                .then(function(data) {
+                    if (Array.isArray(data)) {
+                        savedPaths = data;
+                        renderSavedPaths();
+                    }
+                })
+                .catch(function() {
+                    // Try GitHub API as fallback (gets latest even before Pages rebuilds)
+                    var gh = getGHSettings();
+                    if (!gh) { renderSavedPaths(); return; }
+                    fetch('https://api.github.com/repos/' + gh.repo + '/contents/' + gh.path, {
+                        headers: { 'Authorization': 'Bearer ' + gh.token, 'Accept': 'application/vnd.github.v3+json' }
+                    })
+                    .then(function(r) { return r.json(); })
+                    .then(function(data) {
+                        if (data.content) {
+                            savedPaths = JSON.parse(atob(data.content.replace(/\n/g, '')));
+                            renderSavedPaths();
+                        }
+                    })
+                    .catch(function() { renderSavedPaths(); });
+                });
+        }
+        loadPathsFromFile();
+        
+        // Persist to GitHub — called after every save/edit/delete
+        function persistToGitHub(callback) {
+            var gh = getGHSettings();
+            if (!gh) {
+                showSetupDialog();
+                return;
+            }
+            
+            showSaveStatus('saving', '⏳ Saving...');
+            
+            var content = btoa(unescape(encodeURIComponent(JSON.stringify(savedPaths, null, 2))));
+            var apiUrl = 'https://api.github.com/repos/' + gh.repo + '/contents/' + gh.path;
+            
+            // First get current SHA
+            fetch(apiUrl, {
+                headers: { 'Authorization': 'Bearer ' + gh.token, 'Accept': 'application/vnd.github.v3+json' }
+            })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                var body = {
+                    message: 'Update bike paths',
+                    content: content,
+                    branch: gh.branch || 'main'
+                };
+                if (data.sha) body.sha = data.sha; // update existing file
+                
+                return fetch(apiUrl, {
+                    method: 'PUT',
+                    headers: {
+                        'Authorization': 'Bearer ' + gh.token,
+                        'Accept': 'application/vnd.github.v3+json',
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(body)
+                });
+            })
+            .then(function(r) {
+                if (!r.ok) return r.json().then(function(e) { throw new Error(e.message || 'API error'); });
+                showSaveStatus('saved', '✅ Saved');
+                if (callback) callback();
+            })
+            .catch(function(err) {
+                showSaveStatus('error', '❌ ' + err.message);
+                console.error('GitHub save error:', err);
+            });
+        }
+        
+        // Setup dialog
+        window.showSetupDialog = function() {
+            var gh = getGHSettings();
+            if (gh) {
+                document.getElementById('setup-repo').value = gh.repo || '';
+                document.getElementById('setup-token').value = gh.token || '';
+                document.getElementById('setup-path').value = gh.path || 'paths.json';
+            }
+            // Try auto-detect repo from URL
+            if (!gh) {
+                var m = window.location.hostname.match(/^(.+)\.github\.io$/);
+                if (m) {
+                    var pathParts = window.location.pathname.split('/').filter(Boolean);
+                    if (pathParts.length > 0) {
+                        document.getElementById('setup-repo').value = m[1] + '/' + pathParts[0];
+                    }
+                }
+            }
+            document.getElementById('setup-dialog').className = 'show';
+        };
+        
+        window.closeSetupDialog = function() {
+            document.getElementById('setup-dialog').className = '';
+        };
+        
+        window.saveSetup = function() {
+            var repo = document.getElementById('setup-repo').value.trim();
+            var token = document.getElementById('setup-token').value.trim();
+            var path = document.getElementById('setup-path').value.trim() || 'paths.json';
+            if (!repo || !token) { alert('Repo and token are required.'); return; }
+            localStorage.setItem(GH_SETTINGS_KEY, JSON.stringify({ repo: repo, token: token, path: path, branch: 'main' }));
+            closeSetupDialog();
+            showSaveStatus('saved', '✅ Settings saved');
+        };
+        
+        // Prompt setup if no settings yet
+        if (!getGHSettings()) {
+            setTimeout(function() { showSetupDialog(); }, 2000);
         }
         
         window.showSaveDialog = function() {
             if (drawPoints.length < 2) { alert('Add at least 2 points first.'); return; }
+            var isEdit = editingIdx >= 0;
+            document.getElementById('save-dialog-title').textContent = isEdit ? 'Update Path' : 'Save Path';
+            document.getElementById('save-dialog-btn').textContent = isEdit ? 'Update' : 'Save';
             document.getElementById('save-dialog').className = 'show';
             var input = document.getElementById('path-name');
-            input.value = '';
-            setTimeout(function() { input.focus(); }, 100);
+            if (isEdit) {
+                var saved = getSavedPaths();
+                input.value = saved[editingIdx] ? saved[editingIdx].name : '';
+            } else {
+                input.value = '';
+            }
+            setTimeout(function() { input.focus(); input.select(); }, 100);
         };
         
         window.closeSaveDialog = function() {
@@ -524,16 +740,22 @@
             var name = document.getElementById('path-name').value.trim();
             if (!name) { alert('Enter a name.'); return; }
             var saved = getSavedPaths();
-            saved.push({
+            var entry = {
                 name: name,
                 pts: drawPoints.map(function(p) { return [Math.round(p.lat * 1e6) / 1e6, Math.round(p.lng * 1e6) / 1e6]; }),
                 date: new Date().toISOString().slice(0, 10)
-            });
-            localStorage.setItem(PATH_STORAGE, JSON.stringify(saved));
+            };
+            if (editingIdx >= 0 && editingIdx < saved.length) {
+                saved[editingIdx] = entry;
+            } else {
+                saved.push(entry);
+            }
+            savedPaths = saved;
             closeSaveDialog();
+            editingIdx = -1;
             renderSavedPaths();
-            // Clear current drawing after save
             clearDrawnPath();
+            persistToGitHub();
         };
         
         window.loadSavedPath = function(idx) {
@@ -568,9 +790,38 @@
         
         window.deleteSavedPath = function(idx, e) {
             e.stopPropagation();
+            savedPaths.splice(idx, 1);
+            // Reset editing if we deleted the path being edited
+            if (editingIdx === idx) editingIdx = -1;
+            else if (editingIdx > idx) editingIdx--;
+            renderSavedPaths();
+            persistToGitHub();
+        };
+        
+        window.editSavedPath = function(idx, e) {
+            e.stopPropagation();
+            
+            // Clear current drawing
+            drawPoints = [];
+            drawPolyline.setLatLngs([]);
+            drawMarkers.forEach(function(m) { map.removeLayer(m); });
+            drawMarkers = [];
+            
+            // Remove any loaded preview layers
+            loadedPathLayers.forEach(function(layer) { map.removeLayer(layer); });
+            loadedPathLayers = [];
+            
+            // Load saved path into drawing state
             var saved = getSavedPaths();
-            saved.splice(idx, 1);
-            localStorage.setItem(PATH_STORAGE, JSON.stringify(saved));
+            var path = saved[idx];
+            if (!path) return;
+            
+            editingIdx = idx;
+            path.pts.forEach(function(p) { addDrawPoint(L.latLng(p[0], p[1])); });
+            
+            // Fit view and switch to draw mode
+            if (drawPoints.length > 1) map.fitBounds(drawPolyline.getBounds(), { padding: [40, 40] });
+            setDrawMode('draw');
             renderSavedPaths();
         };
         
@@ -583,9 +834,11 @@
             }
             var html = '';
             saved.forEach(function(p, i) {
-                html += '<div class="saved-item" onclick="loadSavedPath(' + i + ')">' +
-                    '<span class="name">' + p.name + '</span>' +
-                    '<span style="color:#9ca3af;font-size:10px;margin:0 4px;">' + (p.date || '') + '</span>' +
+                var isEditing = (i === editingIdx);
+                html += '<div class="saved-item' + (isEditing ? ' editing' : '') + '" onclick="loadSavedPath(' + i + ')" style="' + (isEditing ? 'border-color:#f59e0b;background:#fffbeb;' : '') + '">' +
+                    '<span class="name">' + p.name + (isEditing ? '<span class="editing-badge">editing</span>' : '') + '</span>' +
+                    '<button class="gmaps" onclick="exportToGoogleMaps(' + i + ', event)" title="Open in Google Maps">🗺️</button>' +
+                    '<button class="edit" onclick="editSavedPath(' + i + ', event)" title="Edit">✏️</button>' +
                     '<button class="del" onclick="deleteSavedPath(' + i + ', event)" title="Delete">×</button>' +
                     '</div>';
             });
@@ -593,6 +846,78 @@
         }
         
         renderSavedPaths();
+        
+        // ── Google Maps Export ──
+        // idx = -1 means current drawing, otherwise saved path index
+        window.exportToGoogleMaps = function(idx, e) {
+            if (e) e.stopPropagation();
+            
+            var pts;
+            if (idx === -1) {
+                // Current drawing
+                if (drawPoints.length < 2) { alert('Draw at least 2 points first.'); return; }
+                pts = drawPoints.map(function(p) { return [p.lat, p.lng]; });
+            } else {
+                var saved = getSavedPaths();
+                if (!saved[idx]) return;
+                pts = saved[idx].pts;
+            }
+            
+            // Google Maps directions URL supports ~25 waypoints max
+            // If more than 25 points, sample evenly but always keep first and last
+            var maxWaypoints = 25;
+            var sampled;
+            if (pts.length <= maxWaypoints) {
+                sampled = pts;
+            } else {
+                sampled = [pts[0]];
+                var step = (pts.length - 1) / (maxWaypoints - 1);
+                for (var i = 1; i < maxWaypoints - 1; i++) {
+                    sampled.push(pts[Math.round(i * step)]);
+                }
+                sampled.push(pts[pts.length - 1]);
+            }
+            
+            var url = 'https://www.google.com/maps/dir/' +
+                sampled.map(function(p) { return p[0] + ',' + p[1]; }).join('/') +
+                '/@' + sampled[0][0] + ',' + sampled[0][1] + ',14z/data=!4m2!4m1!3e1'; // 3e1 = bicycling mode
+            
+            window.open(url, '_blank');
+        };
+        
+        window.importPaths = function(e) {
+            var file = e.target.files[0];
+            if (!file) return;
+            var reader = new FileReader();
+            reader.onload = function(ev) {
+                try {
+                    var imported = JSON.parse(ev.target.result);
+                    if (!Array.isArray(imported)) throw new Error('Invalid format');
+                    imported.forEach(function(p) {
+                        if (!p.name || !Array.isArray(p.pts)) throw new Error('Invalid path entry');
+                    });
+                    var existing = getSavedPaths();
+                    var existingKeys = {};
+                    existing.forEach(function(p) { existingKeys[p.name + '|' + (p.date || '')] = true; });
+                    var added = 0;
+                    imported.forEach(function(p) {
+                        var key = p.name + '|' + (p.date || '');
+                        if (!existingKeys[key]) {
+                            existing.push(p);
+                            added++;
+                        }
+                    });
+                    savedPaths = existing;
+                    renderSavedPaths();
+                    persistToGitHub();
+                    alert('Imported ' + added + ' new path(s).' + (imported.length - added > 0 ? ' (' + (imported.length - added) + ' duplicates skipped)' : ''));
+                } catch(err) {
+                    alert('Error importing: ' + err.message);
+                }
+            };
+            reader.readAsText(file);
+            e.target.value = '';
+        };
         
         // Keyboard shortcut: Cmd/Ctrl+Z to undo
         document.addEventListener('keydown', function(e) {
